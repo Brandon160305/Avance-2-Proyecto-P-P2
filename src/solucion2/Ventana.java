@@ -1,5 +1,5 @@
 package solucion2;
-//cuarto commit Michael Garavi
+//Quinto commit Daniel Caguate
 import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
