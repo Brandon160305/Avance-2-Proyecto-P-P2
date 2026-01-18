@@ -1,14 +1,16 @@
-
+// RegistroEstadoAnimo2.java
 package solucion2;
+
+import java.time.LocalDate;
 
 public class RegistroEstadoAnimo2 {
 
     private String idEstudiante;
-    private String fecha;   // formato YYYY-MM-DD
+    private LocalDate fecha;   // CAMBIO: LocalDate
     private String estado;
     private String nota;
 
-    public RegistroEstadoAnimo2(String idEstudiante, String fecha, String estado, String nota) {
+    public RegistroEstadoAnimo2(String idEstudiante, LocalDate fecha, String estado, String nota) {
         this.idEstudiante = idEstudiante;
         this.fecha = fecha;
         this.estado = estado;
@@ -19,7 +21,7 @@ public class RegistroEstadoAnimo2 {
         return idEstudiante;
     }
 
-    public String getFecha() {
+    public LocalDate getFecha() {
         return fecha;
     }
 
@@ -31,12 +33,16 @@ public class RegistroEstadoAnimo2 {
         return nota;
     }
 
+    // Más robusto: soporta "MUY TRISTE" y "MUY_TRISTE"
     public boolean esEstadoNegativo() {
-        return "TRISTE".equals(estado) || "MUY TRISTE".equals(estado);
+        if (estado == null) return false;
+        String e = estado.trim().toUpperCase().replace("_", " ");
+        return e.equals("TRISTE") || e.equals("MUY TRISTE");
     }
 
     @Override
     public String toString() {
-        return "[" + idEstudiante + "] " + fecha + " - " + estado + " - " + nota;
+        return "[" + idEstudiante + "] " + (fecha == null ? "" : fecha) +
+                " - " + estado + " - " + (nota == null ? "" : nota);
     }
 }

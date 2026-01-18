@@ -1,5 +1,6 @@
+// Ventana.java
 package solucion2;
-//Quinto commit Daniel Caguate
+
 import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -19,16 +20,12 @@ public class Ventana {
     private JList lstCasosRiesgos;
     private JButton btnAtenderSiguiente;
     private JButton btnRefrescarCasos;
+    private JButton btnCerrarSesion;
 
     private DetectorRiesgoService2 detector;
 
-    public Ventana() {
-
-
-        detector = new DetectorRiesgoService2();
-
-
-
+    public Ventana(DetectorRiesgoService2 detector) {
+        this.detector = detector;
 
         btnIngresarFecha.addActionListener(new ActionListener() {
             @Override
@@ -37,14 +34,12 @@ public class Ventana {
             }
         });
 
-
         btnGuardarEstado.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 guardarEstado();
             }
         });
-
 
         btnRefrescarCasos.addActionListener(new ActionListener() {
             @Override
@@ -53,15 +48,35 @@ public class Ventana {
             }
         });
 
-
         btnAtenderSiguiente.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 atenderSiguienteCaso();
             }
         });
+
+        btnCerrarSesion.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                cerrarSesion();
+            }
+        });
+
+        actualizarComboFechas();
     }
 
+    private void cerrarSesion() {
+        JFrame ventanaActual = (JFrame) SwingUtilities.getWindowAncestor(principal);
+        ventanaActual.dispose();
+
+        Login login = new Login();
+        JFrame frameLogin = new JFrame("Login");
+        frameLogin.setContentPane(login.getPrincipal());
+        frameLogin.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frameLogin.pack();
+        frameLogin.setLocationRelativeTo(null);
+        frameLogin.setVisible(true);
+    }
 
     private void ingresarFecha() {
         String fecha = txtFecha.getText();
@@ -74,7 +89,7 @@ public class Ventana {
             return;
         }
 
-        boolean ok = detector.agregarFecha(fecha);
+        boolean ok = detector.agregarFecha(fecha.trim());
 
         if (!ok) {
             JOptionPane.showMessageDialog(principal,
@@ -96,14 +111,13 @@ public class Ventana {
         }
     }
 
-
     private void guardarEstado() {
-
         String id = txtID.getText();
         Object fechaObj = cboFecha.getSelectedItem();
         Object estadoObj = cboEstado.getSelectedItem();
         String nota = txtNota.getText();
 
+        // Validaciones UI mínimas
         if (id == null || id.trim().isEmpty()) {
             JOptionPane.showMessageDialog(principal,
                     "Ingresa el ID del estudiante.",
@@ -129,11 +143,19 @@ public class Ventana {
         String fecha = fechaObj.toString();
         String estado = estadoObj.toString();
 
-        detector.registrarEstado(id.trim(), fecha, estado, nota);
+        // CAMBIO: registrarEstado devuelve error si algo sale mal
+        String error = detector.registrarEstado(id.trim(), fecha, estado, nota);
+
+        if (error != null) {
+            JOptionPane.showMessageDialog(principal,
+                    error,
+                    "No se pudo registrar",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
 
         txtNota.setText("");
         actualizarListaEstados();
-
 
         CasoRiesgo2 ultimo = detector.getUltimoCasoDetectado();
 
@@ -161,7 +183,6 @@ public class Ventana {
 
         lstEstados.setModel(modelo);
     }
-
 
     private void actualizarListaCasos() {
         List<CasoRiesgo2> casos = detector.getCasosPendientesSnapshot();
@@ -192,12 +213,24 @@ public class Ventana {
         actualizarListaCasos();
     }
 
+    public void aplicarRol(String rol) {
+        if (rol.equals("STAFF")) {
+            tabbedPane1.setSelectedIndex(1);
+            tabbedPane1.setEnabledAt(0, false);
+            tabbedPane1.setEnabledAt(1, true);
+        } else {
+            tabbedPane1.setSelectedIndex(0);
+            tabbedPane1.setEnabledAt(1, false);
+            tabbedPane1.setEnabledAt(0, true);
+        }
+    }
 
-    public static void main(String[] args) {
+    public void mostrar() {
         JFrame frame = new JFrame("MindSpace - Solución 2");
-        frame.setContentPane(new Ventana().principal);
+        frame.setContentPane(principal);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.pack();
+        frame.setLocationRelativeTo(null);
         frame.setVisible(true);
     }
 }

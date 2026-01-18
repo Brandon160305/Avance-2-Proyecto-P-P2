@@ -1,3 +1,4 @@
+// DetectorRiesgoService2.java
 package solucion2;
 
 import java.time.LocalDate;
@@ -8,19 +9,24 @@ public class DetectorRiesgoService2 {
     private List<RegistroEstadoAnimo2> historial;
     private List<String> fechasDisponibles;
 
+    // Prioridad real (por diasRacha desc, luego ultimaFecha desc)
+    private PriorityQueue<CasoRiesgo2> colaRiesgo;
 
-    private Queue<CasoRiesgo2> colaRiesgo;
-
-
+    // Caso único por estudiante
     private Map<String, CasoRiesgo2> casosPorEstudiante;
-
 
     private CasoRiesgo2 ultimoCasoDetectado;
 
     public DetectorRiesgoService2() {
         historial = new ArrayList<>();
         fechasDisponibles = new ArrayList<>();
-        colaRiesgo = new LinkedList<>();
+
+        // CAMBIO: ultimaFecha ya es LocalDate
+        colaRiesgo = new PriorityQueue<>(
+                Comparator.comparingInt(CasoRiesgo2::getDiasRacha).reversed()
+                        .thenComparing(CasoRiesgo2::getUltimaFecha, Comparator.nullsLast(Comparator.reverseOrder()))
+        );
+
         casosPorEstudiante = new HashMap<>();
     }
 
@@ -50,13 +56,17 @@ public class DetectorRiesgoService2 {
         return historial;
     }
 
-
+    // Snapshot ordenado por prioridad real
     public List<CasoRiesgo2> getCasosPendientesSnapshot() {
-        return new ArrayList<>(casosPorEstudiante.values());
+        List<CasoRiesgo2> lista = new ArrayList<>(colaRiesgo);
+        lista.sort(
+                Comparator.comparingInt(CasoRiesgo2::getDiasRacha).reversed()
+                        .thenComparing(CasoRiesgo2::getUltimaFecha, Comparator.nullsLast(Comparator.reverseOrder()))
+        );
+        return lista;
     }
 
     public CasoRiesgo2 obtenerSiguienteCaso() {
-
         CasoRiesgo2 c = colaRiesgo.poll();
         if (c != null) {
             casosPorEstudiante.remove(c.getIdEstudiante());
@@ -64,105 +74,137 @@ public class DetectorRiesgoService2 {
         return c;
     }
 
-    public void registrarEstado(String idEstudiante, String fecha, String estado, String nota) {
-        if (idEstudiante == null || idEstudiante.trim().isEmpty()) return;
-        if (fecha == null || fecha.trim().isEmpty()) return;
-        if (estado == null || estado.trim().isEmpty()) return;
+    /**
+     * CAMBIO: ya no falla silencioso.
+     * Retorna null si OK, o un mensaje de error si algo está mal.
+     */
+    public String registrarEstado(String idEstudiante, String fecha, String estado, String nota) {
+
+        if (idEstudiante == null || idEstudiante.trim().isEmpty())
+            return "Ingresa el ID del estudiante.";
+
+        if (fecha == null || fecha.trim().isEmpty())
+            return "Selecciona/ingresa una fecha válida.";
+
+        if (estado == null || estado.trim().isEmpty())
+            return "Selecciona un estado de ánimo.";
 
         idEstudiante = idEstudiante.trim();
         fecha = fecha.trim();
         estado = estado.trim();
 
-        RegistroEstadoAnimo2 reg = new RegistroEstadoAnimo2(idEstudiante, fecha, estado, nota);
-        historial.add(reg);
-
-        if (!fechasDisponibles.contains(fecha)) {
-            fechasDisponibles.add(fecha);
+        LocalDate fechaLD;
+        try {
+            fechaLD = LocalDate.parse(fecha);
+        } catch (Exception ex) {
+            return "La fecha NO es válida.\nEjemplo: 2025-11-29 (YYYY-MM-DD)";
         }
 
+        RegistroEstadoAnimo2 reg = new RegistroEstadoAnimo2(idEstudiante, fechaLD, estado, nota);
+        historial.add(reg);
+
+        // Mantener lista de fechas ordenada SIEMPRE
+        if (!fechasDisponibles.contains(fecha)) {
+            fechasDisponibles.add(fecha);
+            Collections.sort(fechasDisponibles);
+        }
 
         ultimoCasoDetectado = null;
 
-        evaluarRachasConPila(idEstudiante);
+        evaluarRachasConsecutivas(idEstudiante);
+
+        return null; // OK
     }
 
-    private void evaluarRachasConPila(String idEstudiante) {
+    /**
+     * CAMBIO: detección robusta de rachas consecutivas (sin Stack).
+     * - Filtra negativos
+     * - Elimina duplicados por fecha
+     * - Ordena fechas
+     * - Calcula la racha más larga y su última fecha
+     * - Si racha >= 3 => crea/actualiza caso
+     *
+     * También actualiza el caso si:
+     * - crece la racha, o
+     * - la racha es igual pero la última fecha es más reciente
+     */
+    private void evaluarRachasConsecutivas(String idEstudiante) {
 
-        List<String> fechasTristes = new ArrayList<>();
+        // Usamos Set para eliminar duplicados de fecha
+        Set<LocalDate> setFechasTristes = new HashSet<>();
 
         for (RegistroEstadoAnimo2 r : historial) {
             if (r.getIdEstudiante().equals(idEstudiante) && r.esEstadoNegativo()) {
-                if (!fechasTristes.contains(r.getFecha())) {
-                    fechasTristes.add(r.getFecha());
-                }
+                setFechasTristes.add(r.getFecha());
             }
         }
 
-        if (fechasTristes.size() < 3) {
-            return;
-        }
+        if (setFechasTristes.size() < 3) return;
 
+        List<LocalDate> fechas = new ArrayList<>(setFechasTristes);
+        Collections.sort(fechas);
 
-        Collections.sort(fechasTristes);
+        int maxRacha = 1;
+        int rachaActual = 1;
 
+        LocalDate ultimaFechaMax = fechas.get(0);
+        LocalDate ultimaFechaActual = fechas.get(0);
 
-        Stack<String> pilaRacha = new Stack<>();
-        int maxRacha = 0;
-        String ultimaFechaRacha = null;
+        for (int i = 1; i < fechas.size(); i++) {
+            LocalDate prev = fechas.get(i - 1);
+            LocalDate curr = fechas.get(i);
 
-        for (String f : fechasTristes) {
-            if (pilaRacha.isEmpty()) {
-                pilaRacha.push(f);
+            if (curr.equals(prev.plusDays(1))) {
+                rachaActual++;
+                ultimaFechaActual = curr;
             } else {
-                String ultima = pilaRacha.peek();
-                LocalDate dUltima = LocalDate.parse(ultima);
-                LocalDate dActual = LocalDate.parse(f);
-
-                if (dActual.minusDays(1).equals(dUltima)) {
-                    pilaRacha.push(f);
-                } else {
-                    if (pilaRacha.size() > maxRacha) {
-                        maxRacha = pilaRacha.size();
-                        ultimaFechaRacha = pilaRacha.peek();
-                    }
-                    pilaRacha.clear();
-                    pilaRacha.push(f);
+                // cerrar racha actual
+                if (rachaActual > maxRacha ||
+                        (rachaActual == maxRacha && ultimaFechaActual.isAfter(ultimaFechaMax))) {
+                    maxRacha = rachaActual;
+                    ultimaFechaMax = ultimaFechaActual;
                 }
+                // reiniciar
+                rachaActual = 1;
+                ultimaFechaActual = curr;
             }
         }
 
-        if (!pilaRacha.isEmpty() && pilaRacha.size() > maxRacha) {
-            maxRacha = pilaRacha.size();
-            ultimaFechaRacha = pilaRacha.peek();
+        // comparar la última racha al final
+        if (rachaActual > maxRacha ||
+                (rachaActual == maxRacha && ultimaFechaActual.isAfter(ultimaFechaMax))) {
+            maxRacha = rachaActual;
+            ultimaFechaMax = ultimaFechaActual;
         }
 
-        if (maxRacha < 3) {
-
-            return;
-        }
-
+        if (maxRacha < 3) return;
 
         String motivo = "Racha de " + maxRacha + " días con estado TRISTE/MUY TRISTE";
 
         CasoRiesgo2 existente = casosPorEstudiante.get(idEstudiante);
 
         if (existente == null) {
-
-            CasoRiesgo2 nuevo = new CasoRiesgo2(idEstudiante, maxRacha, motivo, ultimaFechaRacha);
+            CasoRiesgo2 nuevo = new CasoRiesgo2(idEstudiante, maxRacha, motivo, ultimaFechaMax);
             casosPorEstudiante.put(idEstudiante, nuevo);
             colaRiesgo.add(nuevo);
             ultimoCasoDetectado = nuevo;
+            return;
+        }
+
+        boolean crecio = maxRacha > existente.getDiasRacha();
+        boolean mismaRachaMasReciente =
+                (maxRacha == existente.getDiasRacha()) &&
+                        (existente.getUltimaFecha() == null || ultimaFechaMax.isAfter(existente.getUltimaFecha()));
+
+        if (crecio || mismaRachaMasReciente) {
+            colaRiesgo.remove(existente); // funciona por equals/hashCode (idEstudiante)
+            existente.setDiasRacha(maxRacha);
+            existente.setUltimaFecha(ultimaFechaMax);
+            existente.setMotivo(motivo);
+            colaRiesgo.add(existente);
+            ultimoCasoDetectado = existente;
         } else {
-
-            if (maxRacha > existente.getDiasRacha()) {
-                existente.setDiasRacha(maxRacha);
-                existente.setUltimaFecha(ultimaFechaRacha);
-                existente.setMotivo(motivo);
-                ultimoCasoDetectado = existente;
-            } else {
-
-                ultimoCasoDetectado = null;
-            }
+            ultimoCasoDetectado = null;
         }
     }
 }
